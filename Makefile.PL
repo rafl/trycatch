@@ -16,6 +16,7 @@ my %config_deps = (
 my %run_deps = (
   'B::Hooks::OP::Check' => 0.18,
   'B::Hooks::OP::PPAddr' => 0.03,
+  #'B::Hooks::OP::Annotation' => 0.43,
 );
 
 requires %run_deps;
@@ -59,7 +60,7 @@ unless ($ok) {
   exit 1;
 }
 
-my $pkg = ExtUtils::Depends->new('TryCatch', 'B::Hooks::OP::PPAddr', 'B::Hooks::OP::Check');
+my $pkg = ExtUtils::Depends->new('TryCatch',  keys %run_deps);
 makemaker_args(
     $pkg->get_makefile_vars,
 );

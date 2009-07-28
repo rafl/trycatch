@@ -21,6 +21,9 @@ our $VERSION = '1.001001';
 
 # These are private state variables. Mess with them at your peril
 our ($CHECK_OP_HOOK, $CHECK_OP_DEPTH) = (undef, 0);
+our $CHECK_ENTERTRY;
+our $NEXT_EVAL_IS_TRY = 0;
+our %TRY_SCOPES = ();
 
 # Stack of state for tacking nested. Each value is number of catch blocks at
 # the current level. We are nested if @STATE > 1
@@ -51,10 +54,7 @@ use Sub::Exporter -setup => {
 
 
 # The actual try call itself. Nothing to do with parsing.
-sub try () {
-  warn "non-shadowed - shouldn't happen";
-  return;
-}
+sub try () { return; }
 
 # Where we store all the TCs for catch blocks created at compile time
 # Not sure we really want to do this, but we will for now.
@@ -87,8 +87,10 @@ sub _parse_try {
   # Let "try =>" be valid.
   return if substr($linestr, $ctx->offset, 2) eq '=>';
 
-  # Shadow try to be a constant no-op sub
-  $ctx->shadow(sub () { } );
+  unless ($CHECK_ENTERTRY) {
+    $CHECK_ENTERTRY = 1;
+    TryCatch::XS::install_entertry_hook();
+  }
 
   $ctx->inject_if_block(
     $ctx->injected_try_code . $ctx->scope_injector_call('{}'),
@@ -108,6 +110,16 @@ sub _parse_try {
   
 }
 
+sub die_handler {
+  ($TryCatch::Error) = (@_);
+  use Devel::Peek;
+  Dump($TryCatch::NEXT_SIG_HANDLER);
+  if ($TryCatch::NEXT_SIG_HANDLER) {
+    $SIG{__DIE__} = $TryCatch::NEXT_SIG_HANDLER;
+    goto &{$SIG{__DIE__} };
+  }
+}
+
 sub injected_try_code {
   # try { ...
   # ->
@@ -120,7 +132,8 @@ sub injected_try_code {
 
 sub injected_after_try {
   # This semicolon is for the end of the eval
-  return ';$TryCatch::Error = $@; } if ($TryCatch::Error) { ';
+  #return ';$TryCatch::Error = $@; } if ($TryCatch::Error) { ';
+  return ';} if ($TryCatch::Error) { ';
 }
 
 sub injected_no_catch_code {
@@ -188,9 +201,14 @@ sub block_postlude {
     $ctx->_parse_catch;
 
   } else  {
-    my $code = $STATE[-1] == 0
-             ? $ctx->injected_no_catch_code
-             : $ctx->injected_post_catch_code;
+    my $code;
+    if ($STATE[-1] == 0) {
+      $code = $ctx->injected_no_catch_code;
+      $NEXT_EVAL_IS_TRY = 2;
+    }
+    else {
+      $code = $ctx->injected_post_catch_code;
+    }
 
     substr($linestr, $offset, 0, $code);
 
@@ -270,8 +288,10 @@ sub _parse_catch {
     $linestr = $ctx->get_linestr;
   }
 
-  $code = $ctx->injected_after_try
-    if $STATE[-1] == 0;
+  if ($STATE[-1] == 0) {
+    $code = $ctx->injected_after_try;
+    $NEXT_EVAL_IS_TRY = 1;
+  }
 
   @conditions = ('1')
     unless @conditions;
@@ -319,6 +339,14 @@ __END__
 =head1 NAME
 
 TryCatch - first class try catch semantics for Perl, without source filters.
+
+=head1 DESCRIPTION
+
+This module aims to provide a nicer syntax and method to catch errors in Perl,
+similar to what is found in other languages (such as Java, Python or C++).  The
+standard method of using C<< eval {}; if ($@) {} >> is often prone to subtle
+bugs, primarily that its far too easy to stomp on the error in error handlers.
+And also eval/if isn't the nicest idiom.
 
 =head1 SYNOPSIS
 

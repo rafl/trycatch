@@ -5,14 +5,21 @@ use Test::More tests => 5;
 use TryCatch;
 
 sub nested_1 {
+  eval "123";
   try {
     try {
+      TryCatch::XS::dump_stack;
       return "from nested_1";
     }
     catch ($e) {
     }
   }
+
+  my $abc = 123;
+  eval { 1; }
 }
+
+is( nested_1(), "from nested_1", "nested try");
 
 sub nested_2 {
   try {
@@ -21,7 +28,6 @@ sub nested_2 {
   }
 }
 
-is( nested_1(), "from nested_1", "nested try");
 is( nested_2(), "from nested_2", "call nested try");
 
 # same thing, but now we return from within the catch
@@ -68,3 +74,20 @@ sub nested_rethrow {
 }
 
 is( nested_rethrow(), "caught in outer TC", "nested rethrow" );
+
+# Test of the destructor checking.
+sub nested_3 {
+  eval "123";
+  try {
+    try {
+      return "from nested_1";
+    }
+    catch ($e) {
+    }
+  }
+  catch ($e) {}
+
+  eval { 1; }
+}
+
+use Data::Dump qw/pp/; pp(\%TryCatch::TRY_SCOPES);
